@@ -14,8 +14,12 @@
 # Binance 공개 REST API (API 키 불필요)
 BINANCE_BASE_URL = "https://api.binance.com"
 
-# 백테스트 기간 (6개월)
-LOOKBACK_DAYS = 180
+# 백테스트 기간 (1년)
+LOOKBACK_DAYS = 365
+
+# Walk-Forward 검증 설정
+WF_TRAIN_DAYS = 180   # 각 폴드의 훈련 구간 (6개월)
+WF_TEST_DAYS  = 60    # 각 폴드의 검증 구간 (2개월)
 
 # 수집할 심볼 (Binance 페어 표기)
 SYMBOL = "XRPUSDT"
@@ -144,9 +148,9 @@ STRATEGY_GRIDS = {
 # 5. 결과 저장 경로
 # ─────────────────────────────────────────────
 
-OUTPUT_DIR       = "results"
-CHART_DIR        = "results/charts"
-CSV_DIR          = "results/csv"
+OUTPUT_DIR       = "results/1year"
+CHART_DIR        = "results/1year/charts"
+CSV_DIR          = "results/1year/csv"
 
 # ─────────────────────────────────────────────
 # 6. 차트 스타일 (다크 테마)

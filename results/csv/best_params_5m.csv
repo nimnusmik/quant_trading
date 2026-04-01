@@ -1,7 +1,0 @@
-﻿strategy,strategy_label,param_ema_fast,param_ema_slow,param_rsi_period,param_tp_pct,param_sl_pct,param_max_hold,param_cooldown,param_vwap_tol,train_return_pct,train_win_rate,train_trades,train_profit_factor,train_mdd,train_sharpe,test_return_pct,test_win_rate,test_trades,test_profit_factor,test_mdd,test_sharpe
-S1_EMA_Cross,EMA 크로스 추세추종,21,55,14,0.03,0.02,96,2,,40.5,34.6,228,1.4,-12.53,2.83,8.38,38.2,34,1.57,-5.72,3.3
-S2_VWAP_Bounce,VWAP 바운스 평균회귀,21,55,9,0.02,0.01,48,5,,8.87,37.0,330,1.07,-19.64,0.91,-11.92,29.4,68,0.6,-15.89,-5.67
-S3_RSI_Extreme,RSI 극단 역추세,21,55,14,0.05,0.015,48,3,0.02,22.43,67.5,40,2.48,-6.36,3.52,-0.39,50.0,10,0.92,-2.88,-0.27
-S4_Triple_EMA,3중 EMA 눌림매수,5,13,14,0.05,0.01,48,3,,38.43,36.8,785,1.12,-28.3,1.71,-5.45,40.0,145,0.92,-14.62,-1.16
-S5_BB_Squeeze,볼린저 스퀴즈,9,21,14,0.02,0.005,96,3,,13.66,27.3,282,1.13,-11.69,1.41,-6.92,21.4,56,0.66,-9.19,-3.49
-S6_MACD_Volume,MACD 모멘텀 전환,21,55,14,0.05,0.02,96,5,,11.49,39.1,266,1.06,-25.71,0.83,-1.81,38.0,50,0.94,-14.42,-0.38

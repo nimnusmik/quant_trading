@@ -19,6 +19,15 @@ from typing import Optional
 
 from config import INITIAL_CAPITAL, POSITION_SIZE, MAKER_FEE, SLIPPAGE
 
+try:
+    from numba import njit
+except ImportError:
+    def njit(f=None, **kwargs):
+        """numba 미설치 시 폴백: 데코레이터를 무시합니다."""
+        if f is not None:
+            return f
+        return lambda fn: fn
+
 
 # ─────────────────────────────────────────────
 # 거래 기록 구조체
@@ -50,202 +59,226 @@ class Trade:
 
 
 # ─────────────────────────────────────────────
-# 백테스트 실행 함수
+# Numba JIT 컴파일 핵심 루프
+# ─────────────────────────────────────────────
+
+_CLOSE_REASONS = {0: "TP", 1: "SL", 2: "TIME", 3: "SIGNAL", 4: "FORCE"}
+
+
+@njit(cache=True)
+def _run_backtest_core(closes, highs, lows, long_signals, short_signals,
+                       tp_pct, sl_pct, max_hold_bars, cooldown_bars,
+                       allow_short, fee, slippage,
+                       initial_capital, position_size):
+    """
+    Numba JIT 컴파일된 백테스트 루프.
+    순수 numpy 배열만 사용하여 Python 오버헤드를 제거합니다.
+    """
+    n = len(closes)
+    equity_curve = np.empty(n - 1, dtype=np.float64)
+
+    # 거래 기록 배열 사전 할당
+    max_t = n // 2 + 1
+    t_dir     = np.empty(max_t, dtype=np.int8)     # 1=long, -1=short
+    t_e_bar   = np.empty(max_t, dtype=np.int64)
+    t_e_price = np.empty(max_t, dtype=np.float64)
+    t_x_bar   = np.empty(max_t, dtype=np.int64)
+    t_x_price = np.empty(max_t, dtype=np.float64)
+    t_reason  = np.empty(max_t, dtype=np.int8)     # 0=TP 1=SL 2=TIME 3=SIGNAL 4=FORCE
+    t_gross   = np.empty(max_t, dtype=np.float64)
+    t_fee     = np.empty(max_t, dtype=np.float64)
+    t_net     = np.empty(max_t, dtype=np.float64)
+    t_pct     = np.empty(max_t, dtype=np.float64)
+
+    nt = 0                               # 거래 수
+    capital = initial_capital
+    in_pos = False
+    pos_dir = 0                          # 1=long, -1=short
+    pos_ep = 0.0                         # entry price
+    pos_eb = 0                           # entry bar
+    last_xb = -cooldown_bars - 1         # 마지막 청산 바
+
+    for i in range(1, n):
+        price = closes[i]
+
+        # ── 에퀴티 ──
+        if in_pos:
+            if pos_dir == 1:
+                ur = (price - pos_ep) / pos_ep
+            else:
+                ur = (pos_ep - price) / pos_ep
+            equity_curve[i - 1] = capital * (1.0 + ur * position_size)
+        else:
+            equity_curve[i - 1] = capital
+
+        # ── 청산 판단 ──
+        if in_pos:
+            hb = i - pos_eb
+            reason = -1
+            xp = 0.0
+
+            if pos_dir == 1:
+                tp_p = pos_ep * (1.0 + tp_pct)
+                sl_p = pos_ep * (1.0 - sl_pct)
+                if highs[i] >= tp_p:
+                    xp = min(tp_p, highs[i])
+                    reason = 0
+                elif lows[i] <= sl_p:
+                    xp = max(sl_p, lows[i])
+                    reason = 1
+            else:
+                tp_p = pos_ep * (1.0 - tp_pct)
+                sl_p = pos_ep * (1.0 + sl_pct)
+                if lows[i] <= tp_p:
+                    xp = max(tp_p, lows[i])
+                    reason = 0
+                elif highs[i] >= sl_p:
+                    xp = min(sl_p, highs[i])
+                    reason = 1
+
+            if reason == -1 and hb >= max_hold_bars:
+                xp = price
+                reason = 2
+
+            if reason == -1:
+                if pos_dir == 1 and short_signals[i]:
+                    xp = price
+                    reason = 3
+                elif pos_dir == -1 and long_signals[i]:
+                    xp = price
+                    reason = 3
+
+            if reason >= 0:
+                notional = capital * position_size
+                if pos_dir == 1:
+                    pc = (xp * (1.0 - slippage) - pos_ep) / pos_ep
+                else:
+                    pc = (pos_ep - xp * (1.0 + slippage)) / pos_ep
+
+                g = notional * pc
+                f = notional * fee * 2.0
+                n_pnl = g - f
+
+                t_dir[nt]     = pos_dir
+                t_e_bar[nt]   = pos_eb
+                t_e_price[nt] = pos_ep
+                t_x_bar[nt]   = i
+                t_x_price[nt] = xp
+                t_reason[nt]  = reason
+                t_gross[nt]   = g
+                t_fee[nt]     = f
+                t_net[nt]     = n_pnl
+                t_pct[nt]     = (n_pnl / notional) * 100.0
+                nt += 1
+
+                capital += n_pnl
+                last_xb = i
+                in_pos = False
+
+        # ── 진입 판단 ──
+        if not in_pos and (i - last_xb) >= cooldown_bars:
+            if long_signals[i - 1] and capital > 0.0:
+                pos_ep = price * (1.0 + slippage)
+                pos_dir = 1
+                pos_eb = i
+                in_pos = True
+            elif allow_short and short_signals[i - 1] and capital > 0.0:
+                pos_ep = price * (1.0 - slippage)
+                pos_dir = -1
+                pos_eb = i
+                in_pos = True
+
+    # ── 미청산 포지션 강제 청산 ──
+    if in_pos:
+        fp = closes[n - 1]
+        notional = capital * position_size
+        if pos_dir == 1:
+            pc = (fp * (1.0 - slippage) - pos_ep) / pos_ep
+        else:
+            pc = (pos_ep - fp * (1.0 + slippage)) / pos_ep
+
+        g = notional * pc
+        f = notional * fee * 2.0
+        n_pnl = g - f
+
+        t_dir[nt]     = pos_dir
+        t_e_bar[nt]   = pos_eb
+        t_e_price[nt] = pos_ep
+        t_x_bar[nt]   = n - 1
+        t_x_price[nt] = fp
+        t_reason[nt]  = 4
+        t_gross[nt]   = g
+        t_fee[nt]     = f
+        t_net[nt]     = n_pnl
+        t_pct[nt]     = (n_pnl / notional) * 100.0
+        nt += 1
+
+        capital += n_pnl
+        equity_curve[-1] = capital
+
+    return (equity_curve, nt,
+            t_dir[:nt], t_e_bar[:nt], t_e_price[:nt],
+            t_x_bar[:nt], t_x_price[:nt], t_reason[:nt],
+            t_gross[:nt], t_fee[:nt], t_net[:nt], t_pct[:nt])
+
+
+# ─────────────────────────────────────────────
+# 백테스트 실행 함수 (래퍼)
 # ─────────────────────────────────────────────
 
 def run_backtest(
     df: pd.DataFrame,
     long_signals:  pd.Series,
     short_signals: pd.Series,
-    tp_pct:        float = 0.005,   # 익절 비율 (0.5%)
-    sl_pct:        float = 0.010,   # 손절 비율 (1.0%)
-    max_hold_bars: int   = 48,      # 최대 보유 캔들 수
-    cooldown_bars: int   = 3,       # 청산 후 재진입 대기 캔들
-    allow_short:   bool  = True,    # 숏 포지션 허용 여부
+    tp_pct:        float = 0.005,
+    sl_pct:        float = 0.010,
+    max_hold_bars: int   = 48,
+    cooldown_bars: int   = 3,
+    allow_short:   bool  = True,
     fee:           float = MAKER_FEE,
     slippage:      float = SLIPPAGE,
 ) -> tuple:
     """
     백테스트를 실행하고 (거래 목록, 에퀴티 곡선) 을 반환합니다.
-
-    Parameters
-    ----------
-    df            : 지표가 계산된 OHLCV DataFrame
-    long_signals  : 롱 진입 신호 (bool Series)
-    short_signals : 숏 진입 신호 (bool Series)
-    tp_pct        : 익절 비율 (0.005 = 0.5%)
-    sl_pct        : 손절 비율 (0.010 = 1.0%)
-    max_hold_bars : 최대 보유 캔들 수
-    cooldown_bars : 청산 후 재진입 금지 캔들 수
-    allow_short   : False면 롱만 거래
-    fee           : 편도 수수료 비율
-    slippage      : 편도 슬리피지 비율
-
-    Returns
-    -------
-    trades : list[Trade]        개별 거래 목록
-    equity : list[float]        캔들별 자본금 추이
+    내부적으로 Numba JIT 컴파일된 코어 루프를 사용합니다.
     """
-    trades        = []
-    trade_id      = 0
-    capital       = INITIAL_CAPITAL
-
-    # 현재 보유 포지션 (없으면 None)
-    position: Optional[Trade] = None
-
-    # 마지막 청산 시점 (쿨다운 적용용)
-    last_exit_bar = -cooldown_bars - 1
-
-    # 에퀴티 곡선: 각 캔들에서의 자본금 (미실현 손익 포함)
-    equity_curve = []
-
-    # ── 캔들 순회 ────────────────────────────────
-    # 스승의 노트: iloc로 정수 인덱스 접근이 라벨(.loc) 접근보다 빠릅니다
     closes = df["close"].values
     highs  = df["high"].values
     lows   = df["low"].values
     times  = df["datetime"].values
+    long_arr  = long_signals.values.astype(np.bool_)
+    short_arr = short_signals.values.astype(np.bool_)
 
-    n = len(df)
+    (equity, nt,
+     dirs, e_bars, e_prices,
+     x_bars, x_prices, reasons,
+     gross, fees, nets, pcts) = _run_backtest_core(
+        closes, highs, lows, long_arr, short_arr,
+        tp_pct, sl_pct, max_hold_bars, cooldown_bars,
+        allow_short, fee, slippage,
+        INITIAL_CAPITAL, POSITION_SIZE,
+    )
 
-    for i in range(1, n):  # 0번 캔들은 신호 발생 전이라 건너뜀
-        price = closes[i]
+    trades = []
+    for i in range(nt):
+        trades.append(Trade(
+            trade_id     = i,
+            direction    = "long" if dirs[i] == 1 else "short",
+            entry_time   = pd.Timestamp(times[e_bars[i]]),
+            entry_price  = float(e_prices[i]),
+            entry_bar    = int(e_bars[i]),
+            exit_time    = pd.Timestamp(times[x_bars[i]]),
+            exit_price   = float(x_prices[i]),
+            exit_bar     = int(x_bars[i]),
+            close_reason = _CLOSE_REASONS[int(reasons[i])],
+            gross_pnl    = float(gross[i]),
+            fee          = float(fees[i]),
+            net_pnl      = float(nets[i]),
+            pnl_pct      = float(pcts[i]),
+            hold_bars    = int(x_bars[i] - e_bars[i]),
+        ))
 
-        # ── 에퀴티 계산 (포지션 있으면 미실현 손익 반영) ──
-        if position is not None:
-            if position.direction == "long":
-                unrealized = (price - position.entry_price) / position.entry_price
-            else:
-                unrealized = (position.entry_price - price) / position.entry_price
-            current_equity = capital * (1 + unrealized * POSITION_SIZE)
-        else:
-            current_equity = capital
-        equity_curve.append(current_equity)
-
-        # ── 포지션 청산 판단 ─────────────────────────
-        if position is not None:
-            entry_price = position.entry_price
-            hold_bars   = i - position.entry_bar
-
-            if position.direction == "long":
-                tp_price = entry_price * (1 + tp_pct)
-                sl_price = entry_price * (1 - sl_pct)
-            else:
-                tp_price = entry_price * (1 - tp_pct)
-                sl_price = entry_price * (1 + sl_pct)
-
-            close_reason = None
-            exit_price   = None
-
-            # 익절/손절 판단: 캔들 내 고가/저가로 확인 (더 현실적)
-            if position.direction == "long":
-                if highs[i] >= tp_price:
-                    # 스승의 노트: TP는 목표가에 지정가가 걸려있다고 가정
-                    # 갭업으로 시가가 이미 TP를 넘었을 수도 있음
-                    exit_price   = min(tp_price, highs[i])  # 현실적으로 처리
-                    close_reason = "TP"
-                elif lows[i] <= sl_price:
-                    exit_price   = max(sl_price, lows[i])   # 슬리피지로 더 불리하게
-                    close_reason = "SL"
-            else:  # short
-                if lows[i] <= tp_price:
-                    exit_price   = max(tp_price, lows[i])
-                    close_reason = "TP"
-                elif highs[i] >= sl_price:
-                    exit_price   = min(sl_price, highs[i])
-                    close_reason = "SL"
-
-            # 시간 초과 청산
-            if close_reason is None and hold_bars >= max_hold_bars:
-                exit_price   = price
-                close_reason = "TIME"
-
-            # 반대 신호 발생 시 청산
-            if close_reason is None:
-                if position.direction == "long"  and short_signals.iloc[i]:
-                    exit_price   = price
-                    close_reason = "SIGNAL"
-                elif position.direction == "short" and long_signals.iloc[i]:
-                    exit_price   = price
-                    close_reason = "SIGNAL"
-
-            # 청산 처리
-            if close_reason is not None:
-                _close_position(position, exit_price, i, times[i],
-                                close_reason, fee, slippage, capital)
-
-                capital          += position.net_pnl
-                last_exit_bar     = i
-                trades.append(position)
-                position          = None
-
-        # ── 진입 판단 (청산 직후 같은 캔들에서 재진입 없음) ──
-        if position is None and (i - last_exit_bar) >= cooldown_bars:
-
-            # 이전 캔들의 신호로 현재 캔들 시가에 진입 (룩어헤드 방지)
-            # 여기서는 현재 캔들 종가로 근사 (시뮬레이션 단순화)
-            if long_signals.iloc[i - 1] and capital > 0:
-                entry_price = price * (1 + slippage)  # 슬리피지: 더 높은 가격에 체결
-                position = Trade(
-                    trade_id    = trade_id,
-                    direction   = "long",
-                    entry_time  = pd.Timestamp(times[i]),
-                    entry_price = entry_price,
-                    entry_bar   = i,
-                )
-                trade_id += 1
-
-            elif allow_short and short_signals.iloc[i - 1] and capital > 0:
-                entry_price = price * (1 - slippage)  # 숏: 더 낮은 가격에 체결
-                position = Trade(
-                    trade_id    = trade_id,
-                    direction   = "short",
-                    entry_time  = pd.Timestamp(times[i]),
-                    entry_price = entry_price,
-                    entry_bar   = i,
-                )
-                trade_id += 1
-
-    # ── 백테스트 종료 시 미청산 포지션 강제 청산 ──
-    if position is not None:
-        final_price = closes[-1]
-        _close_position(position, final_price, n - 1, times[-1],
-                        "FORCE", fee, slippage, capital)
-        capital += position.net_pnl
-        trades.append(position)
-        equity_curve[-1] = capital  # 마지막 에퀴티 수정
-
-    return trades, equity_curve
-
-
-def _close_position(trade: Trade, exit_price: float, exit_bar: int,
-                    exit_time, reason: str, fee: float, slippage: float,
-                    capital: float) -> None:
-    """
-    포지션을 청산하고 Trade 객체의 손익 필드를 채웁니다.
-    (인플레이스 수정 — trade 객체를 직접 변경)
-    """
-    trade.exit_price  = exit_price
-    trade.exit_bar    = exit_bar
-    trade.exit_time   = pd.Timestamp(exit_time)
-    trade.close_reason = reason
-    trade.hold_bars   = exit_bar - trade.entry_bar
-
-    notional = capital * POSITION_SIZE  # 투입 금액
-
-    # 진입 슬리피지는 이미 entry_price에 반영됨 (lines 188, 199)
-    # 청산 슬리피지는 여기서 exit_price에 반영
-    if trade.direction == "long":
-        adj_exit     = exit_price * (1 - slippage)   # 매도: 불리하게 낮은 가격에 체결
-        price_change = (adj_exit - trade.entry_price) / trade.entry_price
-    else:
-        adj_exit     = exit_price * (1 + slippage)   # 숏 청산(매수): 불리하게 높은 가격에 체결
-        price_change = (trade.entry_price - adj_exit) / trade.entry_price
-
-    trade.gross_pnl = notional * price_change
-    trade.fee       = notional * fee * 2              # 수수료만 왕복 (슬리피지는 가격에 반영)
-    trade.net_pnl   = trade.gross_pnl - trade.fee
-    trade.pnl_pct   = (trade.net_pnl / notional) * 100
+    return trades, equity.tolist()
 
 
 # ─────────────────────────────────────────────
