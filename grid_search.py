@@ -297,6 +297,7 @@ def run_all_grid_searches(df: pd.DataFrame,
     # 전략별 폴드 결과 누적
     agg_trades = {sk: [] for sk in strategy_keys}
     agg_equity = {sk: [] for sk in strategy_keys}
+    fold_metrics = {sk: [] for sk in strategy_keys}  # 폴드별 성과
     last_best_params   = {sk: _default_params() for sk in strategy_keys}
     last_train_results = {}
 
@@ -337,6 +338,7 @@ def run_all_grid_searches(df: pd.DataFrame,
 
             agg_trades[s_key].extend(trades)
             agg_equity[s_key].append(equity)
+            fold_metrics[s_key].append(m)
 
             best = top_df.iloc[0]
             print(f"  [{s_key}] 폴드{fold_i+1}: "
@@ -382,6 +384,8 @@ def run_all_grid_searches(df: pd.DataFrame,
         "train_results": last_train_results,
         "test_results":  test_results,
         "best_params":   last_best_params,
+        "fold_metrics":  fold_metrics,
+        "n_folds":       len(splits),
         "df_train":      last_df_train,
         "df_test":       df_test_all,
     }
