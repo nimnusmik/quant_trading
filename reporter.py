@@ -561,4 +561,13 @@ def generate_report(grid_output: dict, timeframe_key: str):
             plot_strategy_trades(df_ind, result["trades"], result.get("equity", []),
                                 sk, timeframe_key)
 
+    # ⑥ Bootstrap CI 검증 (전체 전략)
+    from stat_validation import bootstrap_ci, plot_bootstrap_histograms
+    for sk, result in test_results.items():
+        if not result or not result.get("trades"):
+            continue
+        bs = bootstrap_ci(result["trades"])
+        if bs:
+            plot_bootstrap_histograms(bs, sk, timeframe_key)
+
     print(f"  ✓ 모든 결과물 저장 완료 → {OUTPUT_DIR}/")

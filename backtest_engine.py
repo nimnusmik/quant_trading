@@ -66,13 +66,14 @@ _CLOSE_REASONS = {0: "TP", 1: "SL", 2: "TIME", 3: "SIGNAL", 4: "FORCE"}
 
 
 @njit(cache=True)
-def _run_backtest_core(closes, highs, lows, long_signals, short_signals,
+def _run_backtest_core(closes, opens, highs, lows, long_signals, short_signals,
                        tp_pct, sl_pct, max_hold_bars, cooldown_bars,
                        allow_short, fee, slippage,
                        initial_capital, position_size):
     """
     Numba JIT 컴파일된 백테스트 루프.
-    순수 numpy 배열만 사용하여 Python 오버헤드를 제거합니다.
+    진입: 다음 캔들 시가(open)로 체결 (실전과 동일)
+    청산: 캔들 내 고가/저가로 TP/SL 판단, 종가로 시간초과/신호 청산
     """
     n = len(closes)
     equity_curve = np.empty(n - 1, dtype=np.float64)
@@ -100,6 +101,7 @@ def _run_backtest_core(closes, highs, lows, long_signals, short_signals,
 
     for i in range(1, n):
         price = closes[i]
+        open_price = opens[i]
 
         # ── 에퀴티 ──
         if in_pos:
@@ -175,15 +177,15 @@ def _run_backtest_core(closes, highs, lows, long_signals, short_signals,
                 last_xb = i
                 in_pos = False
 
-        # ── 진입 판단 ──
+        # ── 진입 판단 (시가로 체결) ──
         if not in_pos and (i - last_xb) >= cooldown_bars:
             if long_signals[i - 1] and capital > 0.0:
-                pos_ep = price * (1.0 + slippage)
+                pos_ep = open_price * (1.0 + slippage)
                 pos_dir = 1
                 pos_eb = i
                 in_pos = True
             elif allow_short and short_signals[i - 1] and capital > 0.0:
-                pos_ep = price * (1.0 - slippage)
+                pos_ep = open_price * (1.0 - slippage)
                 pos_dir = -1
                 pos_eb = i
                 in_pos = True
@@ -243,6 +245,7 @@ def run_backtest(
     내부적으로 Numba JIT 컴파일된 코어 루프를 사용합니다.
     """
     closes = df["close"].values
+    opens  = df["open"].values
     highs  = df["high"].values
     lows   = df["low"].values
     times  = df["datetime"].values
@@ -253,7 +256,7 @@ def run_backtest(
      dirs, e_bars, e_prices,
      x_bars, x_prices, reasons,
      gross, fees, nets, pcts) = _run_backtest_core(
-        closes, highs, lows, long_arr, short_arr,
+        closes, opens, highs, lows, long_arr, short_arr,
         tp_pct, sl_pct, max_hold_bars, cooldown_bars,
         allow_short, fee, slippage,
         INITIAL_CAPITAL, POSITION_SIZE,

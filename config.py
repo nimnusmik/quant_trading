@@ -14,8 +14,8 @@
 # Binance 공개 REST API (API 키 불필요)
 BINANCE_BASE_URL = "https://api.binance.com"
 
-# 백테스트 기간 (1년)
-LOOKBACK_DAYS = 365
+# 백테스트 기간 (2년)
+LOOKBACK_DAYS = 730
 
 # Walk-Forward 검증 설정
 WF_TRAIN_DAYS = 180   # 각 폴드의 훈련 구간 (6개월)
@@ -153,7 +153,15 @@ CHART_DIR        = "results/1year/charts"
 CSV_DIR          = "results/1year/csv"
 
 # ─────────────────────────────────────────────
-# 6. 차트 스타일 (다크 테마)
+# 6. Bootstrap CI 설정
+# ─────────────────────────────────────────────
+
+BOOTSTRAP_N    = 10_000    # 리샘플링 횟수
+BOOTSTRAP_CI   = 0.95      # 신뢰구간 수준 (95%)
+BOOTSTRAP_SEED = 42        # 재현성 보장용 시드
+
+# ─────────────────────────────────────────────
+# 7. 차트 스타일 (다크 테마)
 # ─────────────────────────────────────────────
 
 CHART_STYLE = {

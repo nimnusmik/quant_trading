@@ -136,6 +136,13 @@ def print_final_summary(results: dict):
                 f"{fold_str}"
             )
 
+        # 전체 전략 Bootstrap CI 출력
+        from stat_validation import bootstrap_ci, print_bootstrap_summary
+        for _, (sk, result) in enumerate(ranked):
+            bs = bootstrap_ci(result["trades"])
+            if bs:
+                print_bootstrap_summary(bs, sk, result["metrics"]["total_trades"])
+
     print(f"\n결과 파일 위치:")
     print(f"  차트: {CHART_DIR}/")
     print(f"  CSV:  {CSV_DIR}/")
