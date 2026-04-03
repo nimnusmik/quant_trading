@@ -29,6 +29,13 @@ results/
 *.swp
 *.swo
 
+
+.results/
+*.csv
+*.txt
+*.png
+*.pyc
+
 # Environment variables
 .env
 .env.local

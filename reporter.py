@@ -19,8 +19,11 @@ import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
 from matplotlib import font_manager as fm
 
+from matplotlib.lines import Line2D
+
 from config import CHART_STYLE, KOREAN_FONTS, OUTPUT_DIR, CHART_DIR, CSV_DIR
 from backtest_engine import trades_to_dataframe
+from indicators import compute_all
 from strategies import STRATEGY_LABELS
 
 
@@ -397,6 +400,123 @@ def save_best_params_csv(best_params: dict, train_results: dict,
 
 
 # ─────────────────────────────────────────────
+# 5. 매매 시점 차트
+# ─────────────────────────────────────────────
+
+def plot_strategy_trades(df: pd.DataFrame, trades: list, equity: list,
+                         strategy_key: str, timeframe_key: str,
+                         save_dir: str = CHART_DIR):
+    """
+    가격 차트 위에 매수/매도 시점을 표시합니다.
+    상단: 가격 + EMA + 매매 마커, 하단: 에퀴티 곡선.
+    """
+    if not trades:
+        return
+
+    _setup_font()
+    _apply_style()
+    s = CHART_STYLE
+
+    fig, (ax_p, ax_eq) = plt.subplots(
+        2, 1, figsize=(22, 12),
+        gridspec_kw={"height_ratios": [3, 1]},
+    )
+    fig.patch.set_facecolor(s["bg"])
+
+    label = STRATEGY_LABELS.get(strategy_key, strategy_key)
+    tf_label = "1시간봉" if timeframe_key == "1h" else ("5분봉" if timeframe_key == "5m" else "1분봉")
+    fig.suptitle(f"{label} — 매매 시점 ({tf_label})",
+                 fontsize=14, fontweight="bold", y=0.98, color=s["text"])
+
+    # ── 가격 + EMA ──
+    ax_p.set_facecolor(s["bg"])
+    dates = df["datetime"]
+    ax_p.plot(dates, df["close"], color=s["text"], linewidth=0.8, alpha=0.6, label="종가")
+    if "ema_fast" in df.columns:
+        ax_p.plot(dates, df["ema_fast"], color=s["teal"], linewidth=0.7, alpha=0.5, label="EMA fast")
+    if "ema_slow" in df.columns:
+        ax_p.plot(dates, df["ema_slow"], color=s["gold"], linewidth=0.7, alpha=0.5, label="EMA slow")
+
+    # ── 매매 마커 ──
+    reason_marker = {"TP": "*", "SL": "X", "TIME": "s", "SIGNAL": "D", "FORCE": "o"}
+
+    for t in trades:
+        win = t.net_pnl > 0
+        pnl_color = s["green"] if win else s["red"]
+
+        # 진입 마커
+        entry_m = "^" if t.direction == "long" else "v"
+        entry_c = s["green"] if t.direction == "long" else s["red"]
+        ax_p.scatter(t.entry_time, t.entry_price, marker=entry_m,
+                     color=entry_c, s=120, zorder=5,
+                     edgecolors="white", linewidths=0.5)
+
+        # 청산 마커
+        ax_p.scatter(t.exit_time, t.exit_price,
+                     marker=reason_marker.get(t.close_reason, "o"),
+                     color=pnl_color, s=90, zorder=5,
+                     edgecolors="white", linewidths=0.5)
+
+        # 진입-청산 연결선
+        ax_p.plot([t.entry_time, t.exit_time],
+                  [t.entry_price, t.exit_price],
+                  color=pnl_color, linewidth=1.0, alpha=0.4, linestyle="--")
+
+    # ── 범례 ──
+    legend_els = [
+        Line2D([0], [0], color=s["text"], linewidth=0.8, alpha=0.6, label="종가"),
+        Line2D([0], [0], color=s["teal"], linewidth=0.7, label="EMA fast"),
+        Line2D([0], [0], color=s["gold"], linewidth=0.7, label="EMA slow"),
+        Line2D([0], [0], marker="^", color="w", markerfacecolor=s["green"],
+               markersize=10, linestyle="None", label="롱 진입"),
+        Line2D([0], [0], marker="v", color="w", markerfacecolor=s["red"],
+               markersize=10, linestyle="None", label="숏 진입"),
+        Line2D([0], [0], marker="*", color="w", markerfacecolor=s["green"],
+               markersize=10, linestyle="None", label="익절 (TP)"),
+        Line2D([0], [0], marker="X", color="w", markerfacecolor=s["red"],
+               markersize=10, linestyle="None", label="손절 (SL)"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor=s["muted"],
+               markersize=8, linestyle="None", label="시간초과/신호"),
+    ]
+    ax_p.legend(handles=legend_els, loc="upper left", fontsize=8,
+                framealpha=0.3, ncol=2)
+    ax_p.set_ylabel("가격 (USDT)", color=s["muted"])
+    ax_p.grid(True, alpha=0.15)
+    ax_p.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+    ax_p.tick_params(axis="x", rotation=30)
+
+    # ── 에퀴티 곡선 ──
+    ax_eq.set_facecolor(s["bg"])
+    if equity:
+        eq_dates = dates.iloc[1 : len(equity) + 1].values if len(equity) <= len(dates) - 1 else None
+        if eq_dates is not None:
+            ax_eq.plot(eq_dates, equity, color=s["teal"], linewidth=1.2)
+            ax_eq.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+            ax_eq.tick_params(axis="x", rotation=30)
+        else:
+            ax_eq.plot(equity, color=s["teal"], linewidth=1.2)
+        ax_eq.axhline(10000, color=s["border"], linewidth=0.8, linestyle="--")
+        ax_eq.fill_between(range(len(equity)) if eq_dates is None else eq_dates,
+                           equity, 10000, where=[e >= 10000 for e in equity],
+                           color=s["green"], alpha=0.08)
+        ax_eq.fill_between(range(len(equity)) if eq_dates is None else eq_dates,
+                           equity, 10000, where=[e < 10000 for e in equity],
+                           color=s["red"], alpha=0.08)
+    ax_eq.set_ylabel("자본금 ($)", color=s["muted"])
+    ax_eq.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax_eq.grid(True, alpha=0.15)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    os.makedirs(save_dir, exist_ok=True)
+    out_path = os.path.join(save_dir, f"trades_{strategy_key}_{timeframe_key}.png")
+    plt.savefig(out_path, dpi=150, bbox_inches="tight",
+                facecolor=s["bg"], edgecolor="none")
+    plt.close()
+    print(f"  [저장] {out_path}")
+    return out_path
+
+
+# ─────────────────────────────────────────────
 # 전체 리포트 생성 (외부 호출용)
 # ─────────────────────────────────────────────
 
@@ -421,5 +541,33 @@ def generate_report(grid_output: dict, timeframe_key: str):
 
     # ④ 최적 파라미터 CSV
     save_best_params_csv(best_params, train_results, test_results, timeframe_key)
+
+    # ⑤ 매매 시점 차트 (전략별)
+    df_train = grid_output.get("df_train")
+    df_test  = grid_output.get("df_test")
+    if df_train is not None and df_test is not None:
+        for sk, result in test_results.items():
+            if not result or not result.get("trades"):
+                continue
+            p = best_params.get(sk, {})
+            warmup = max(p.get("ema_slow", 21), 50) * 3
+            df_ctx = pd.concat([df_train.tail(warmup), df_test], ignore_index=True)
+            df_ind = compute_all(df_ctx,
+                                 ema_fast   = p.get("ema_fast", 9),
+                                 ema_slow   = p.get("ema_slow", 21),
+                                 ema_trend  = max(p.get("ema_slow", 21), 50),
+                                 rsi_period = p.get("rsi_period", 7))
+            df_ind = df_ind.iloc[warmup:].reset_index(drop=True)
+            plot_strategy_trades(df_ind, result["trades"], result.get("equity", []),
+                                sk, timeframe_key)
+
+    # ⑥ Bootstrap CI 검증 (전체 전략)
+    from stat_validation import bootstrap_ci, plot_bootstrap_histograms
+    for sk, result in test_results.items():
+        if not result or not result.get("trades"):
+            continue
+        bs = bootstrap_ci(result["trades"])
+        if bs:
+            plot_bootstrap_histograms(bs, sk, timeframe_key)
 
     print(f"  ✓ 모든 결과물 저장 완료 → {OUTPUT_DIR}/")

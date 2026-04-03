@@ -30,9 +30,9 @@ def parse_args():
         description="XRP 스캘핑 6전략 백테스트 (코빗 Maker 0% 기준)"
     )
     parser.add_argument(
-        "--tf", choices=["1h", "5m", "1m", "both"],
+        "--tf", choices=["1h", "30m", "5m", "1m", "both"],
         default="both",
-        help="봉 단위 (기본값: both = 1h + 5m). 1m은 별도 지정)"
+        help="봉 단위 (기본값: both = 1h + 5m). 30m/1m은 별도 지정)"
     )
     parser.add_argument(
         "--refresh", action="store_true",
@@ -109,21 +109,39 @@ def print_final_summary(results: dict):
             print("  결과 없음")
             continue
 
+        fold_metrics = grid_output.get("fold_metrics", {})
+        n_folds      = grid_output.get("n_folds", 0)
+
         for rank, (sk, result) in enumerate(ranked, 1):
             m = result["metrics"]
             p = best_params.get(sk, {})
             pf_str = f"{m['profit_factor']:.2f}" if m['profit_factor'] != float("inf") else "∞"
+
+            # 폴드별 수익률 문자열
+            fm = fold_metrics.get(sk, [])
+            if fm:
+                fold_str = " | 폴드 " + "/".join(
+                    f"{f['total_return_pct']:+.1f}%" for f in fm
+                )
+            else:
+                fold_str = ""
+
             print(
                 f"  {rank}위 {sk:<20} "
                 f"수익률 {m['total_return_pct']:+5.1f}% | "
                 f"승률 {m['win_rate']:4.0f}% | "
                 f"PF {pf_str:>6} | "
                 f"MDD {m['mdd']:5.1f}% | "
-                f"거래수 {m['total_trades']:3d} | "
-                f"EMA{p.get('ema_fast','?')}/{p.get('ema_slow','?')} "
-                f"RSI{p.get('rsi_period','?')} "
-                f"TP{p.get('tp_pct', 0)*100:.1f}%"
+                f"거래수 {m['total_trades']:3d}"
+                f"{fold_str}"
             )
+
+        # 전체 전략 Bootstrap CI 출력
+        from stat_validation import bootstrap_ci, print_bootstrap_summary
+        for _, (sk, result) in enumerate(ranked):
+            bs = bootstrap_ci(result["trades"])
+            if bs:
+                print_bootstrap_summary(bs, sk, result["metrics"]["total_trades"])
 
     print(f"\n결과 파일 위치:")
     print(f"  차트: {CHART_DIR}/")

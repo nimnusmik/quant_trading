@@ -243,11 +243,13 @@ def compute_all(df: pd.DataFrame,
 
     # ── 볼린저 밴드 ──────────────────────────────
     bb = bollinger_bands(result["close"])
-    result = pd.concat([result, bb], axis=1)
+    for col in bb.columns:
+        result[col] = bb[col]
 
     # ── MACD ─────────────────────────────────────
     mc = macd(result["close"])
-    result = pd.concat([result, mc], axis=1)
+    for col in mc.columns:
+        result[col] = mc[col]
 
     # ── 거래량 이동평균 ──────────────────────────
     result["vol_ma20"] = volume_ma(result["volume"], 20)
