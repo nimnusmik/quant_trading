@@ -32,6 +32,11 @@ TIMEFRAMES = {
         "label":           "1시간봉",
         "candles_per_day": 24,      # 일별 캔들 수 (Sharpe 연환산에 사용)
     },
+    "30m": {
+        "interval":        "30m",
+        "label":           "30분봉",
+        "candles_per_day": 48,      # 24 × 2 = 48
+    },
     "5m": {
         "interval":        "5m",
         "label":           "5분봉",

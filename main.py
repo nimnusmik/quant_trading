@@ -30,9 +30,9 @@ def parse_args():
         description="XRP 스캘핑 6전략 백테스트 (코빗 Maker 0% 기준)"
     )
     parser.add_argument(
-        "--tf", choices=["1h", "5m", "1m", "both"],
+        "--tf", choices=["1h", "30m", "5m", "1m", "both"],
         default="both",
-        help="봉 단위 (기본값: both = 1h + 5m). 1m은 별도 지정)"
+        help="봉 단위 (기본값: both = 1h + 5m). 30m/1m은 별도 지정)"
     )
     parser.add_argument(
         "--refresh", action="store_true",
