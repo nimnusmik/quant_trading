@@ -137,18 +137,28 @@ def check_signals(bot_send, interval: str = "1h") -> list:
                     side_kr = "롱" if side == "long" else "숏"
 
                     price_vs_vwap_pct = last_candle.get("price_vs_vwap", 0) * 100
+                    entry_price = df.iloc[-1]["open"]
+                    tp_pct = params.get("tp_pct", 0)
+                    sl_pct = params.get("sl_pct", 0)
+
+                    if side == "long":
+                        tp_price = entry_price * (1 + tp_pct)
+                        sl_price = entry_price * (1 - sl_pct)
+                    else:
+                        tp_price = entry_price * (1 - tp_pct)
+                        sl_price = entry_price * (1 + sl_pct)
 
                     msg = (
                         f"{emoji} [{label}] {side_kr} 신호\n"
                         f"코인: {coin}/USDT | {interval}\n"
-                        f"가격: ${last_candle['close']:,.4f}\n"
+                        f"진입가: ${entry_price:,.4f}\n"
+                        f"익절가: ${tp_price:,.4f} ({tp_pct:+.1%})\n"
+                        f"손절가: ${sl_price:,.4f} ({sl_pct:-.1%})\n"
+                        f"─────────────────\n"
                         f"RSI: {last_candle['rsi']:.1f} | "
                         f"VWAP: ${last_candle['vwap']:,.4f} "
                         f"({price_vs_vwap_pct:+.2f}%)\n"
-                        f"─────────────────\n"
-                        f"EMA: {params.get('ema_fast', '?')}/{params.get('ema_slow', '?')} | "
-                        f"TP: {params.get('tp_pct', 0):.1%} | "
-                        f"SL: {params.get('sl_pct', 0):.1%}"
+                        f"EMA: {params.get('ema_fast', '?')}/{params.get('ema_slow', '?')}"
                     )
                     bot_send(msg)
                     fired.append((symbol, strat_name, side, params))

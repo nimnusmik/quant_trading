@@ -24,33 +24,13 @@ _NEWS_FEEDS = [
     ("Reuters World",    "https://feeds.reuters.com/Reuters/worldNews"),
 ]
 
-# 영→한 간이 번역 매핑 (완벽하지 않지만 핵심 키워드 치환)
-_EN_KO_MAP = [
-    ("Bitcoin ETF", "비트코인 ETF"), ("Bitcoin", "비트코인"), ("Ethereum", "이더리움"),
-    ("XRP", "XRP"), ("Ripple", "리플"), ("crypto", "크립토"), ("Crypto", "크립토"),
-    ("SEC", "SEC"), ("ETF", "ETF"),
-    ("inflows", "자금유입"), ("outflows", "자금유출"),
-    ("surges", "급등"), ("plunges", "급락"), ("slips", "하락"), ("drops", "하락"),
-    ("rallies", "상승"), ("rises", "상승"), ("holds steady", "보합"),
-    ("hits highest", "최고치 경신"), ("hits lowest", "최저치 경신"),
-    ("breakout", "돌파"), ("breakdown", "이탈"),
-    ("liquidity", "유동성"), ("miners", "채굴자"),
-    ("Federal Reserve", "연준"), ("Fed", "연준"), ("interest rate", "금리"),
-    ("inflation", "인플레이션"), ("tariff", "관세"), ("Tariff", "관세"),
-    ("sanctions", "제재"), ("sanction", "제재"),
-    ("oil", "유가"), ("crude", "원유"), ("OPEC", "OPEC"),
-    ("Trump", "트럼프"), ("Iran", "이란"), ("China", "중국"), ("Russia", "러시아"),
-    ("deadline", "마감"), ("deal", "합의"), ("war", "전쟁"),
-    ("as ", " — "), ("after ", " 이후 "), ("amid ", " 속에서 "),
-]
-
-
 def _translate_headline(title: str) -> str:
-    """영어 헤드라인을 간이 한글로 치환합니다."""
-    result = title
-    for en, ko in _EN_KO_MAP:
-        result = result.replace(en, ko)
-    return result
+    """영어 헤드라인을 한글로 번역합니다."""
+    try:
+        from deep_translator import GoogleTranslator
+        return GoogleTranslator(source="en", target="ko").translate(title)
+    except Exception:
+        return title
 
 # 주요 관심 키워드 (대소문자 무관)
 _KEYWORDS = [
