@@ -76,10 +76,10 @@ def main():
 
     if args.briefing_now:
         from monitor.telegram_bot import send
-        from monitor.price_monitor import get_current_prices
+        from monitor.price_monitor import get_current_prices, BRIEFING_SYMBOLS
         from monitor.news_monitor import build_daily_briefing
         print("[브리핑] 현재가 조회 중...")
-        prices = get_current_prices()
+        prices = get_current_prices(BRIEFING_SYMBOLS)
         msg = build_daily_briefing(prices)
         print(msg)
         send(msg)
@@ -103,6 +103,8 @@ def main():
 
     from monitor.telegram_bot import send
     from monitor.scheduler import create_scheduler
+    from monitor.best_params import BEST_PARAMS, ACTIVE_STRATEGIES
+    from strategies import STRATEGY_LABELS
 
     trade_mode = os.getenv("TRADE_MODE", "paper").upper()
 
@@ -114,15 +116,26 @@ def main():
     print(f"  5분봉 신호  : 매 5분")
     print(f"  1시간봉 신호 : 매 1시간")
     print(f"  일일 브리핑 : 매일 09:00 KST")
+    print(f"  활성 전략   : {', '.join(sorted(ACTIVE_STRATEGIES))}")
     print("=" * 50)
     print("  종료: Ctrl+C")
     print()
+
+    # 활성 전략 파라미터 요약
+    strat_lines = []
+    for s in sorted(ACTIVE_STRATEGIES):
+        p = BEST_PARAMS.get(s, {})
+        label = STRATEGY_LABELS.get(s, s)
+        strat_lines.append(
+            f"  {label}: EMA({p.get('ema_fast','?')}/{p.get('ema_slow','?')}) "
+            f"TP({p.get('tp_pct',0):.1%}) SL({p.get('sl_pct',0):.1%})"
+        )
 
     send(
         f"🚀 모니터링 봇 시작됨\n"
         f"매매 모드: {trade_mode}\n"
         f"감시 코인: XRP / BTC / ETH\n"
-        f"전략: S1~S6 전체 (5m + 1h)"
+        f"활성 전략 (통계 유의):\n" + "\n".join(strat_lines)
     )
 
     scheduler = create_scheduler()

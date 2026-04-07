@@ -3,8 +3,8 @@
 #
 # 스케줄:
 #   매  1분  : 가격 3% 변동 감지 + TP/SL 청산 체크
-#   매  5분  : 5분봉 S1~S6 신호 감지
-#   매  1시간 : 1시간봉 S1~S6 신호 감지
+#   매  5분  : 5분봉 신호 감지 (활성 전략만, 최적 파라미터)
+#   매  1시간 : 1시간봉 신호 감지 (활성 전략만, 최적 파라미터)
 #   매일 09:00 KST : 일일 브리핑 발송
 # =============================================================================
 
@@ -21,6 +21,7 @@ from monitor.price_monitor import check_price_alerts, get_current_prices, _last_
 from monitor.signal_monitor import check_signals
 from monitor.news_monitor import build_daily_briefing
 from monitor import trade_executor
+from monitor.best_params import BEST_PARAMS, ACTIVE_STRATEGIES
 
 
 def _job_price_check():
@@ -28,48 +29,56 @@ def _job_price_check():
     check_price_alerts(send)
 
     # TP/SL 청산 체크 (오픈 포지션이 있을 때만)
-    if trade_executor.get_position():
-        for symbol, price in _last_prices.items():
-            trade_executor.check_exit(price, bot_send=send)
+    positions = trade_executor.get_all_positions()
+    if positions:
+        for strategy, pos in list(positions.items()):
+            price = _last_prices.get(pos["symbol"], 0)
+            if price > 0:
+                trade_executor.check_exit(price, bot_send=send)
+
+
+def _execute_signals(fired: list):
+    """신호 발생 시 최적 파라미터의 TP/SL로 진입합니다."""
+    for symbol, strat_name, side, params in fired:
+        price = _last_prices.get(symbol, 0)
+        if price <= 0:
+            continue
+
+        tp_pct = params.get("tp_pct", 0.012)
+        sl_pct = params.get("sl_pct", 0.005)
+
+        trade_executor.execute_signal(
+            symbol=symbol,
+            side=side,
+            price=price,
+            strategy=strat_name,
+            tp_pct=tp_pct,
+            sl_pct=sl_pct,
+            bot_send=send,
+        )
 
 
 def _job_signal_5m():
     """5분봉 신호 감지 및 자동매매 진입."""
     fired = check_signals(send, interval="5m")
-    for symbol, strat_name, side in fired:
-        price = _last_prices.get(symbol, 0)
-        if price > 0:
-            trade_executor.execute_signal(
-                symbol=symbol,
-                side=side,
-                price=price,
-                bot_send=send,
-            )
+    _execute_signals(fired)
 
 
 def _job_signal_1h():
     """1시간봉 신호 감지 및 자동매매 진입."""
     fired = check_signals(send, interval="1h")
-    for symbol, strat_name, side in fired:
-        price = _last_prices.get(symbol, 0)
-        if price > 0:
-            trade_executor.execute_signal(
-                symbol=symbol,
-                side=side,
-                price=price,
-                bot_send=send,
-            )
+    _execute_signals(fired)
 
 
 def _job_daily_briefing():
     """일일 브리핑 발송."""
+    from monitor.price_monitor import BRIEFING_SYMBOLS
     try:
-        # 최신 가격으로 갱신
-        prices = get_current_prices()
+        prices = get_current_prices(BRIEFING_SYMBOLS)
         _last_prices.update(prices)
     except Exception:
         pass
-    msg = build_daily_briefing(_last_prices)
+    msg = build_daily_briefing(prices)
     send(msg)
 
 
@@ -82,14 +91,6 @@ def create_scheduler() -> BackgroundScheduler:
         "interval",
         minutes=1,
         id="price_check",
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.add_job(
-        _job_signal_5m,
-        "interval",
-        minutes=5,
-        id="signal_5m",
         max_instances=1,
         coalesce=True,
     )

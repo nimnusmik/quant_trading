@@ -15,14 +15,40 @@
 
 import argparse
 import os
+import sys
 import time
 from datetime import datetime
 
-from config import TIMEFRAMES, OUTPUT_DIR, CHART_DIR, CSV_DIR
+import pandas as pd
+
+from config import TIMEFRAMES, OUTPUT_DIR, CHART_DIR, CSV_DIR, HOLDOUT_DAYS
 from data_loader import fetch_ohlcv, validate_data
 from indicators import compute_all
-from grid_search import run_all_grid_searches
+from grid_search import run_all_grid_searches, _evaluate_test
+from backtest_engine import compute_metrics, compute_regime_breakdown
 from reporter import generate_report
+
+
+class TeeLogger:
+    """stdout을 콘솔과 로그 파일에 동시에 출력합니다."""
+
+    def __init__(self, log_path: str):
+        self.terminal = sys.stdout
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        self.log_file = open(log_path, "w", encoding="utf-8")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log_file.write(message)
+        self.log_file.flush()
+
+    def flush(self):
+        self.terminal.flush()
+        self.log_file.flush()
+
+    def close(self):
+        self.log_file.close()
+        sys.stdout = self.terminal
 
 
 def parse_args():
@@ -43,6 +69,45 @@ def parse_args():
         help="롱 포지션만 (숏 비활성화)"
     )
     return parser.parse_args()
+
+
+def _evaluate_holdout(best_params: dict, df_pre: pd.DataFrame,
+                      df_holdout: pd.DataFrame,
+                      candles_per_day: int) -> dict:
+    """
+    WF에서 선택된 파라미터를 홀드아웃 데이터에 1회만 평가합니다.
+    이 데이터는 그리드 서치에 전혀 사용되지 않았으므로 과적합 여부를 판단할 수 있습니다.
+    """
+    from strategies import STRATEGIES
+
+    print(f"\n{'='*60}")
+    print("  홀드아웃 최종 평가 (이 데이터는 그리드서치에 미사용)")
+    print(f"{'='*60}")
+
+    results = {}
+    for s_key, p in best_params.items():
+        if not p or "ema_slow" not in p:
+            continue
+
+        trades, equity = _evaluate_test(
+            s_key, p, df_pre, df_holdout, candles_per_day
+        )
+        metrics = compute_metrics(trades, equity, candles_per_day)
+        results[s_key] = {
+            "metrics": metrics,
+            "trades":  trades,
+            "equity":  equity,
+        }
+
+        pf_str = f"{metrics['profit_factor']:.2f}" if metrics['profit_factor'] != float("inf") else "∞"
+        print(f"  [{s_key}] 홀드아웃: "
+              f"수익률 {metrics['total_return_pct']:+.1f}% | "
+              f"승률 {metrics['win_rate']:.0f}% | "
+              f"PF {pf_str} | "
+              f"MDD {metrics['mdd']:.1f}% | "
+              f"거래수 {metrics['total_trades']}")
+
+    return results
 
 
 def run_for_timeframe(timeframe_key: str, force_refresh: bool, allow_short: bool):
@@ -68,13 +133,34 @@ def run_for_timeframe(timeframe_key: str, force_refresh: bool, allow_short: bool
     # ── Step 2: 데이터 품질 검사 ─────────────────────
     validate_data(df, timeframe_key)
 
-    # ── Step 3: 그리드 서치 (Walk-Forward) ───────────
+    # ── Step 3: 홀드아웃 분리 ────────────────────────
+    holdout_candles = HOLDOUT_DAYS * tf["candles_per_day"]
+    df_wf      = df.iloc[:-holdout_candles].reset_index(drop=True)
+    df_holdout = df.iloc[-holdout_candles:].reset_index(drop=True)
+
+    # 홀드아웃 직전 데이터 (지표 워밍업용)
+    warmup_candles = 150 * 3  # EMA 워밍업 충분히 확보
+    df_pre_holdout = df.iloc[-(holdout_candles + warmup_candles):-holdout_candles].reset_index(drop=True)
+
+    print(f"\n  데이터 분리:")
+    print(f"    WF 그리드서치: {df_wf['datetime'].iloc[0].date()} ~ {df_wf['datetime'].iloc[-1].date()} ({len(df_wf):,}캔들)")
+    print(f"    홀드아웃:      {df_holdout['datetime'].iloc[0].date()} ~ {df_holdout['datetime'].iloc[-1].date()} ({len(df_holdout):,}캔들)")
+
+    # ── Step 4: 그리드 서치 (Walk-Forward) ───────────
     grid_output = run_all_grid_searches(
-        df,
+        df_wf,
         candles_per_day = tf["candles_per_day"],
     )
 
-    # ── Step 4: 리포트 생성 ───────────────────────────
+    # ── Step 5: 홀드아웃 최종 평가 ───────────────────
+    holdout_results = _evaluate_holdout(
+        grid_output["best_params"],
+        df_pre_holdout, df_holdout,
+        tf["candles_per_day"],
+    )
+    grid_output["holdout_results"] = holdout_results
+
+    # ── Step 6: 리포트 생성 ───────────────────────────
     generate_report(grid_output, timeframe_key)
 
     elapsed = time.time() - t0
@@ -143,6 +229,50 @@ def print_final_summary(results: dict):
             if bs:
                 print_bootstrap_summary(bs, sk, result["metrics"]["total_trades"])
 
+        # ── 홀드아웃 vs WF 비교 ──
+        holdout_results = grid_output.get("holdout_results", {})
+        if holdout_results:
+            print(f"\n  [홀드아웃 vs WF 검증 비교]")
+            print(f"  {'전략':<22} {'WF 수익률':>10} {'홀드아웃':>10} {'차이':>8}  판정")
+            print(f"  {'-'*65}")
+            for sk, result in test_results.items():
+                if not result or not result.get("metrics"):
+                    continue
+                wf_ret = result["metrics"]["total_return_pct"]
+                ho = holdout_results.get(sk, {})
+                if ho and ho.get("metrics"):
+                    ho_ret = ho["metrics"]["total_return_pct"]
+                    diff = ho_ret - wf_ret
+                    # 홀드아웃이 WF 대비 크게 나쁘면 과적합 의심
+                    if ho_ret > 0 and diff > -abs(wf_ret) * 0.5:
+                        verdict = "OK"
+                    elif ho_ret > 0:
+                        verdict = "주의"
+                    else:
+                        verdict = "과적합 의심"
+                    print(f"  {sk:<22} {wf_ret:>+9.1f}% {ho_ret:>+9.1f}% {diff:>+7.1f}%  {verdict}")
+                else:
+                    print(f"  {sk:<22} {wf_ret:>+9.1f}% {'N/A':>10} {'':>8}  -")
+
+        # ── 장세별 성과 분석 ──
+        print(f"\n  [장세별 성과 분석]")
+        print(f"  {'전략':<22} {'상승장':>18} {'보합장':>18} {'하락장':>18}")
+        print(f"  {'-'*78}")
+        for sk, result in test_results.items():
+            if not result or not result.get("trades"):
+                continue
+            rb = compute_regime_breakdown(result["trades"])
+            if not rb:
+                continue
+            parts = []
+            for regime in ["상승", "보합", "하락"]:
+                r = rb[regime]
+                if r["trades"] > 0:
+                    parts.append(f"{r['ret_pct']:+5.1f}% ({r['trades']:2d}건 {r['win_rate']:2.0f}%)")
+                else:
+                    parts.append(f"{'—':>17}")
+            print(f"  {sk:<22} {parts[0]:>18} {parts[1]:>18} {parts[2]:>18}")
+
     print(f"\n결과 파일 위치:")
     print(f"  차트: {CHART_DIR}/")
     print(f"  CSV:  {CSV_DIR}/")
@@ -151,6 +281,13 @@ def print_final_summary(results: dict):
 
 def main():
     args = parse_args()
+
+    # 일별 로그 폴더 생성 및 로거 설정
+    now = datetime.now()
+    log_dir = os.path.join("results", now.strftime("%Y-%m-%d"))
+    log_path = os.path.join(log_dir, f"run_{now.strftime('%H%M%S')}.log")
+    logger = TeeLogger(log_path)
+    sys.stdout = logger
 
     # 결과 디렉토리 생성
     for d in [OUTPUT_DIR, CHART_DIR, CSV_DIR]:
@@ -191,6 +328,9 @@ def main():
     # 최종 요약 출력
     if all_results:
         print_final_summary(all_results)
+
+    print(f"\n로그 저장: {log_path}")
+    logger.close()
 
 
 if __name__ == "__main__":

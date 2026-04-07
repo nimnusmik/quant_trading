@@ -22,7 +22,7 @@ from matplotlib import font_manager as fm
 from matplotlib.lines import Line2D
 
 from config import CHART_STYLE, KOREAN_FONTS, OUTPUT_DIR, CHART_DIR, CSV_DIR
-from backtest_engine import trades_to_dataframe
+from backtest_engine import trades_to_dataframe, compute_regime_breakdown
 from indicators import compute_all
 from strategies import STRATEGY_LABELS
 
@@ -400,7 +400,41 @@ def save_best_params_csv(best_params: dict, train_results: dict,
 
 
 # ─────────────────────────────────────────────
-# 5. 매매 시점 차트
+# 5. 장세별 성과 CSV 저장
+# ─────────────────────────────────────────────
+
+def save_regime_breakdown_csv(all_results: dict, timeframe_key: str,
+                               save_dir: str = CSV_DIR):
+    """전략별 장세(상승/보합/하락) 성과를 CSV로 저장합니다."""
+    os.makedirs(save_dir, exist_ok=True)
+    rows = []
+
+    for sk, result in all_results.items():
+        if not result or not result.get("trades"):
+            continue
+        rb = compute_regime_breakdown(result["trades"])
+        if not rb:
+            continue
+        for regime, metrics in rb.items():
+            rows.append({
+                "strategy": sk,
+                "strategy_label": STRATEGY_LABELS.get(sk, sk),
+                "regime": regime,
+                **metrics,
+            })
+
+    if not rows:
+        return None
+
+    df_regime = pd.DataFrame(rows)
+    path = os.path.join(save_dir, f"regime_breakdown_{timeframe_key}.csv")
+    df_regime.to_csv(path, index=False, encoding="utf-8-sig")
+    print(f"  [저장] {path}")
+    return path
+
+
+# ─────────────────────────────────────────────
+# 6. 매매 시점 차트
 # ─────────────────────────────────────────────
 
 def plot_strategy_trades(df: pd.DataFrame, trades: list, equity: list,
@@ -542,7 +576,10 @@ def generate_report(grid_output: dict, timeframe_key: str):
     # ④ 최적 파라미터 CSV
     save_best_params_csv(best_params, train_results, test_results, timeframe_key)
 
-    # ⑤ 매매 시점 차트 (전략별)
+    # ⑤ 장세별 성과 CSV
+    save_regime_breakdown_csv(test_results, timeframe_key)
+
+    # ⑥ 매매 시점 차트 (전략별)
     df_train = grid_output.get("df_train")
     df_test  = grid_output.get("df_test")
     if df_train is not None and df_test is not None:

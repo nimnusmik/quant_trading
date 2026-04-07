@@ -15,7 +15,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-WATCH_SYMBOLS = ["XRPUSDT", "BTCUSDT", "ETHUSDT"]
+WATCH_SYMBOLS = ["XRPUSDT"]
+BRIEFING_SYMBOLS = ["XRPUSDT", "BTCUSDT", "ETHUSDT"]
 _TICKER_URL   = "https://api.binance.com/api/v3/ticker/price"
 COOLDOWN_SECS = 1800  # 30분
 
@@ -24,10 +25,10 @@ _last_prices      = {}  # symbol -> float
 _last_alert_times = {}  # symbol -> timestamp (초)
 
 
-def get_current_prices() -> dict:
-    """Binance에서 감시 심볼들의 현재가를 개별 조회합니다."""
+def get_current_prices(symbols: list = None) -> dict:
+    """Binance에서 심볼들의 현재가를 개별 조회합니다."""
     result = {}
-    for symbol in WATCH_SYMBOLS:
+    for symbol in (symbols or WATCH_SYMBOLS):
         resp = requests.get(_TICKER_URL, params={"symbol": symbol}, timeout=10)
         resp.raise_for_status()
         result[symbol] = float(resp.json()["price"])

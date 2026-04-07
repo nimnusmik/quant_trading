@@ -57,6 +57,9 @@ class Trade:
     pnl_pct:    float = 0.0   # 수익률 (%)
     hold_bars:  int   = 0     # 보유 기간 (캔들 수)
 
+    # 장세 라벨 (진입 시점 기준)
+    entry_regime: Optional[str] = None  # "상승" / "보합" / "하락"
+
 
 # ─────────────────────────────────────────────
 # Numba JIT 컴파일 핵심 루프
@@ -122,20 +125,45 @@ def _run_backtest_core(closes, opens, highs, lows, long_signals, short_signals,
             if pos_dir == 1:
                 tp_p = pos_ep * (1.0 + tp_pct)
                 sl_p = pos_ep * (1.0 - sl_pct)
-                if highs[i] >= tp_p:
-                    xp = min(tp_p, highs[i])
+                tp_hit = highs[i] >= tp_p
+                sl_hit = lows[i] <= sl_p
+
+                if tp_hit and sl_hit:
+                    # 둘 다 닿음 → 시가에서 더 가까운 쪽이 먼저 체결
+                    dist_tp = tp_p - open_price   # 위로 올라가야 할 거리
+                    dist_sl = open_price - sl_p   # 아래로 내려가야 할 거리
+                    if dist_tp <= dist_sl:
+                        xp = tp_p
+                        reason = 0
+                    else:
+                        xp = sl_p
+                        reason = 1
+                elif tp_hit:
+                    xp = tp_p
                     reason = 0
-                elif lows[i] <= sl_p:
-                    xp = max(sl_p, lows[i])
+                elif sl_hit:
+                    xp = sl_p
                     reason = 1
             else:
                 tp_p = pos_ep * (1.0 - tp_pct)
                 sl_p = pos_ep * (1.0 + sl_pct)
-                if lows[i] <= tp_p:
-                    xp = max(tp_p, lows[i])
+                tp_hit = lows[i] <= tp_p
+                sl_hit = highs[i] >= sl_p
+
+                if tp_hit and sl_hit:
+                    dist_tp = open_price - tp_p   # 아래로 내려가야 할 거리
+                    dist_sl = sl_p - open_price   # 위로 올라가야 할 거리
+                    if dist_tp <= dist_sl:
+                        xp = tp_p
+                        reason = 0
+                    else:
+                        xp = sl_p
+                        reason = 1
+                elif tp_hit:
+                    xp = tp_p
                     reason = 0
-                elif highs[i] >= sl_p:
-                    xp = min(sl_p, highs[i])
+                elif sl_hit:
+                    xp = sl_p
                     reason = 1
 
             if reason == -1 and hb >= max_hold_bars:
@@ -262,6 +290,9 @@ def run_backtest(
         INITIAL_CAPITAL, POSITION_SIZE,
     )
 
+    has_regime = "regime" in df.columns
+    regimes = df["regime"].values if has_regime else None
+
     trades = []
     for i in range(nt):
         trades.append(Trade(
@@ -279,6 +310,7 @@ def run_backtest(
             net_pnl      = float(nets[i]),
             pnl_pct      = float(pcts[i]),
             hold_bars    = int(x_bars[i] - e_bars[i]),
+            entry_regime = str(regimes[e_bars[i]]) if has_regime else None,
         ))
 
     return trades, equity.tolist()
@@ -370,6 +402,39 @@ def compute_metrics(trades: list, equity_curve: list,
         "avg_hold_bars":    round(avg_hold, 1),
         "monthly_ret":      monthly_ret,
     }
+
+
+def compute_regime_breakdown(trades: list) -> dict:
+    """
+    거래를 장세별(상승/보합/하락)로 그룹핑하여 성과를 계산합니다.
+
+    Returns
+    -------
+    dict : {"상승": {"trades": N, "win_rate": %, "net_pnl": $, "ret_pct": %}, ...}
+    """
+    if not trades or trades[0].entry_regime is None:
+        return {}
+
+    breakdown = {}
+    for regime in ["상승", "보합", "하락"]:
+        group = [t for t in trades if t.entry_regime == regime]
+        if not group:
+            breakdown[regime] = {
+                "trades": 0, "win_rate": 0, "net_pnl": 0, "ret_pct": 0,
+            }
+            continue
+
+        n = len(group)
+        wins = sum(1 for t in group if t.net_pnl > 0)
+        net = sum(t.net_pnl for t in group)
+        breakdown[regime] = {
+            "trades":   n,
+            "win_rate": round(wins / n * 100, 1),
+            "net_pnl":  round(net, 2),
+            "ret_pct":  round(net / INITIAL_CAPITAL * 100, 2),
+        }
+
+    return breakdown
 
 
 def _empty_metrics() -> dict:

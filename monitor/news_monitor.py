@@ -24,6 +24,34 @@ _NEWS_FEEDS = [
     ("Reuters World",    "https://feeds.reuters.com/Reuters/worldNews"),
 ]
 
+# 영→한 간이 번역 매핑 (완벽하지 않지만 핵심 키워드 치환)
+_EN_KO_MAP = [
+    ("Bitcoin ETF", "비트코인 ETF"), ("Bitcoin", "비트코인"), ("Ethereum", "이더리움"),
+    ("XRP", "XRP"), ("Ripple", "리플"), ("crypto", "크립토"), ("Crypto", "크립토"),
+    ("SEC", "SEC"), ("ETF", "ETF"),
+    ("inflows", "자금유입"), ("outflows", "자금유출"),
+    ("surges", "급등"), ("plunges", "급락"), ("slips", "하락"), ("drops", "하락"),
+    ("rallies", "상승"), ("rises", "상승"), ("holds steady", "보합"),
+    ("hits highest", "최고치 경신"), ("hits lowest", "최저치 경신"),
+    ("breakout", "돌파"), ("breakdown", "이탈"),
+    ("liquidity", "유동성"), ("miners", "채굴자"),
+    ("Federal Reserve", "연준"), ("Fed", "연준"), ("interest rate", "금리"),
+    ("inflation", "인플레이션"), ("tariff", "관세"), ("Tariff", "관세"),
+    ("sanctions", "제재"), ("sanction", "제재"),
+    ("oil", "유가"), ("crude", "원유"), ("OPEC", "OPEC"),
+    ("Trump", "트럼프"), ("Iran", "이란"), ("China", "중국"), ("Russia", "러시아"),
+    ("deadline", "마감"), ("deal", "합의"), ("war", "전쟁"),
+    ("as ", " — "), ("after ", " 이후 "), ("amid ", " 속에서 "),
+]
+
+
+def _translate_headline(title: str) -> str:
+    """영어 헤드라인을 간이 한글로 치환합니다."""
+    result = title
+    for en, ko in _EN_KO_MAP:
+        result = result.replace(en, ko)
+    return result
+
 # 주요 관심 키워드 (대소문자 무관)
 _KEYWORDS = [
     "XRP", "ripple", "crypto", "bitcoin", "ethereum",
@@ -87,6 +115,21 @@ def get_ppi() -> dict:
 # 뉴스 헤드라인 수집 (RSS)
 # ─────────────────────────────────────────────
 
+def get_fear_greed() -> dict:
+    """Crypto Fear & Greed Index를 반환합니다. (0=극도의 공포, 100=극도의 탐욕)"""
+    try:
+        resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=10)
+        resp.raise_for_status()
+        data = resp.json()["data"][0]
+        return {
+            "value": int(data["value"]),
+            "label": data["value_classification"],
+        }
+    except Exception as e:
+        print(f"[news_monitor] 공포지수 조회 실패: {e}")
+        return {"value": None, "label": None}
+
+
 def get_news_headlines(max_items: int = 5) -> list:
     """관심 키워드가 포함된 뉴스 헤드라인을 반환합니다."""
     headlines = []
@@ -100,7 +143,7 @@ def get_news_headlines(max_items: int = 5) -> list:
                 if not title or title in seen:
                     continue
                 if any(kw.lower() in title.lower() for kw in _KEYWORDS):
-                    headlines.append(f"• {title}  [{source_name}]")
+                    headlines.append(f"• {_translate_headline(title)}  [{source_name}]")
                     seen.add(title)
                     if len(headlines) >= max_items:
                         return headlines
@@ -125,6 +168,7 @@ def build_daily_briefing(crypto_prices: dict) -> str:
     """
     oil  = get_oil_price()
     ppi  = get_ppi()
+    fng  = get_fear_greed()
     news = get_news_headlines()
 
     date_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M") + " KST"
@@ -154,6 +198,10 @@ def build_daily_briefing(crypto_prices: dict) -> str:
         lines.append(f"📊 PPI (PPIACO) : {ppi['value']}  ({ppi['date']})")
     elif ppi.get("note"):
         lines.append(f"📊 PPI : {ppi['note']}")
+
+    # 공포·탐욕 지수
+    if fng["value"] is not None:
+        lines.append(f"😱 공포·탐욕 지수 : {fng['value']}/100 ({fng['label']})")
 
     # 뉴스
     if news:

@@ -21,6 +21,11 @@ LOOKBACK_DAYS = 730
 WF_TRAIN_DAYS = 180   # 각 폴드의 훈련 구간 (6개월)
 WF_TEST_DAYS  = 60    # 각 폴드의 검증 구간 (2개월)
 
+# 최종 홀드아웃 (과적합 검증용)
+# 데이터 끝에서 이 기간만큼을 WF 그리드서치에서 완전히 제외하고,
+# 최종 선택된 파라미터를 1회만 평가하는 데 사용
+HOLDOUT_DAYS = 60     # 2개월
+
 # 수집할 심볼 (Binance 페어 표기)
 SYMBOL = "XRPUSDT"
 
