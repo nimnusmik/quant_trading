@@ -127,9 +127,14 @@ def create_scheduler() -> BackgroundScheduler:
     if not db_url:
         print("[scheduler] DATABASE_URL not set — DB persistence disabled")
     else:
-        migrate(db_url)
-        db.init_pool(db_url)
-        startup_recovery(send)
+        try:
+            migrate(db_url)
+            db.init_pool(db_url)
+            startup_recovery(send)
+        except Exception as e:
+            print(f"[scheduler] DB 초기화 실패: {e}")
+            print("[scheduler] DB persistence disabled — bot will run without persistence")
+            send(f"⚠️ DB 연결 실패 — 포지션 저장 없이 실행됩니다: {e}")
 
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 

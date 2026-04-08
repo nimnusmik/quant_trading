@@ -68,8 +68,7 @@ def migrate(database_url: str = None) -> None:
     """Create tables if they don't exist. Safe to call multiple times."""
     url = database_url or os.getenv("DATABASE_URL")
     if not url:
-        print("[db_migrate] DATABASE_URL not set")
-        sys.exit(1)
+        raise RuntimeError("DATABASE_URL not set")
 
     conn = psycopg2.connect(url)
     conn.autocommit = True
@@ -94,11 +93,10 @@ def migrate(database_url: str = None) -> None:
 
             # Apply schema
             cur.execute(_SCHEMA_V1)
-            if not has_version_table:
-                cur.execute(
-                    "INSERT INTO schema_version (version) VALUES (%s)",
-                    (CURRENT_VERSION,),
-                )
+            cur.execute(
+                "INSERT INTO schema_version (version) VALUES (%s)",
+                (CURRENT_VERSION,),
+            )
             print(f"[db_migrate] Schema migrated to v{CURRENT_VERSION}")
     finally:
         conn.close()
@@ -108,4 +106,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run DB migrations")
     parser.add_argument("--url", help="PostgreSQL connection URL")
     args = parser.parse_args()
-    migrate(args.url)
+    try:
+        migrate(args.url)
+    except RuntimeError as e:
+        print(f"[db_migrate] {e}")
+        sys.exit(1)
