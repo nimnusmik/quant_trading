@@ -1,0 +1,9 @@
+ccxt
+python-telegram-bot>=20.0
+apscheduler>=3.10
+python-dotenv
+yfinance
+feedparser
+requests
+psycopg2-binary>=2.9
+pytest>=7.0
