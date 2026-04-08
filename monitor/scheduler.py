@@ -97,8 +97,40 @@ def _job_daily_briefing():
     send(msg)
 
 
+def startup_recovery(bot_send) -> None:
+    """Load positions from DB and notify via Telegram."""
+    trade_executor.load_positions_from_db()
+    positions = trade_executor.get_all_positions()
+    if positions:
+        lines = []
+        for strategy, p in positions.items():
+            side_kr = "롱" if p["side"] == "long" else "숏"
+            lines.append(
+                f"  {strategy} {side_kr} @ ${p['entry_price']:,.4f}"
+            )
+        msg = (
+            f"🔄 봇 재시작 — 포지션 {len(positions)}개 복구됨\n"
+            + "\n".join(lines)
+        )
+    else:
+        msg = "🔄 봇 재시작 — 오픈 포지션 없음"
+    print(msg)
+    bot_send(msg)
+
+
 def create_scheduler() -> BackgroundScheduler:
     """스케줄러를 생성하고 모든 작업을 등록합니다."""
+    # Initialize DB
+    from monitor.db_migrate import migrate
+
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        print("[scheduler] DATABASE_URL not set — DB persistence disabled")
+    else:
+        migrate(db_url)
+        db.init_pool(db_url)
+        startup_recovery(send)
+
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
     scheduler.add_job(
