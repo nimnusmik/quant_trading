@@ -42,6 +42,11 @@ TIMEFRAMES = {
         "label":           "30분봉",
         "candles_per_day": 48,      # 24 × 2 = 48
     },
+    "15m": {
+        "interval":        "15m",
+        "label":           "15분봉",
+        "candles_per_day": 96,      # 24 × 4 = 96
+    },
     "5m": {
         "interval":        "5m",
         "label":           "5분봉",
@@ -101,6 +106,7 @@ GRID = {
     # EMA 기간 조합 [빠른선, 느린선]
     "ema_pairs": [
         [5,  13],
+        [5,  20],
         [9,  21],
         [9,  50],
         [21, 55],
