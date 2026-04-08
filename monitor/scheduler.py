@@ -21,6 +21,7 @@ from monitor.price_monitor import check_price_alerts, get_current_prices, _last_
 from monitor.signal_monitor import check_signals
 from monitor.news_monitor import build_daily_briefing
 from monitor import trade_executor
+from monitor import db
 from monitor.best_params import BEST_PARAMS, ACTIVE_STRATEGIES
 
 
@@ -39,7 +40,15 @@ def _job_price_check():
 
 def _execute_signals(fired: list):
     """신호 발생 시 최적 파라미터의 TP/SL로 진입합니다."""
-    for symbol, strat_name, side, params in fired:
+    for item in fired:
+        # 5-element tuple: (symbol, strat_name, side, params, signal_id)
+        # Backward-compatible with 4-element tuples
+        if len(item) >= 5:
+            symbol, strat_name, side, params, signal_id = item[:5]
+        else:
+            symbol, strat_name, side, params = item[:4]
+            signal_id = None
+
         price = _last_prices.get(symbol, 0)
         if price <= 0:
             continue
@@ -47,7 +56,7 @@ def _execute_signals(fired: list):
         tp_pct = params.get("tp_pct", 0.012)
         sl_pct = params.get("sl_pct", 0.005)
 
-        trade_executor.execute_signal(
+        result = trade_executor.execute_signal(
             symbol=symbol,
             side=side,
             price=price,
@@ -56,6 +65,12 @@ def _execute_signals(fired: list):
             sl_pct=sl_pct,
             bot_send=send,
         )
+
+        if result and signal_id is not None:
+            try:
+                db.update_signal_acted(signal_id)
+            except Exception as e:
+                print(f"[scheduler] DB signal_acted 업데이트 오류: {e}")
 
 
 def _job_signal_5m():

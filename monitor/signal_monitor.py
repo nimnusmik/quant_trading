@@ -22,6 +22,7 @@ from indicators import compute_all
 from strategies import STRATEGIES, STRATEGY_LABELS
 from config import BINANCE_BASE_URL
 from monitor.best_params import BEST_PARAMS, ACTIVE_STRATEGIES
+from monitor import db
 
 WATCH_SYMBOLS = ["XRPUSDT"]
 _KLINES_URL   = f"{BINANCE_BASE_URL}/api/v3/klines"
@@ -69,7 +70,7 @@ def check_signals(bot_send, interval: str = "1h") -> list:
 
     Returns
     -------
-    list  발생한 신호 목록: [(symbol, strategy, side, params), ...]
+    list  발생한 신호 목록: [(symbol, strategy, side, params, signal_id), ...]
     """
     fired = []
 
@@ -126,6 +127,23 @@ def check_signals(bot_send, interval: str = "1h") -> list:
                     if not sig_series.iloc[-2]:
                         continue
 
+                    # DB에 신호 기록 (중복 알림과 무관하게 항상 기록)
+                    signal_id = None
+                    try:
+                        signal_id = db.insert_signal({
+                            "strategy": strat_name,
+                            "symbol": symbol,
+                            "side": side,
+                            "interval": interval,
+                            "price": float(last_candle["close"]),
+                            "rsi": float(last_candle["rsi"]),
+                            "vwap": float(last_candle["vwap"]),
+                            "acted": False,
+                            "reason_skipped": None,
+                        })
+                    except Exception as e:
+                        print(f"[signal_monitor] DB 신호 기록 오류: {e}")
+
                     # 중복 알림 방지
                     key = (symbol, strat_name, side, interval)
                     if _last_signal_candle.get(key) == last_candle_time:
@@ -161,6 +179,6 @@ def check_signals(bot_send, interval: str = "1h") -> list:
                         f"EMA: {params.get('ema_fast', '?')}/{params.get('ema_slow', '?')}"
                     )
                     bot_send(msg)
-                    fired.append((symbol, strat_name, side, params))
+                    fired.append((symbol, strat_name, side, params, signal_id))
 
     return fired
