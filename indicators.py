@@ -14,6 +14,8 @@
 import pandas as pd
 import numpy as np
 
+from fold_regime_analyzer import compute_adx
+
 
 # ─────────────────────────────────────────────
 # EMA (지수이동평균)
@@ -243,11 +245,13 @@ def compute_all(df: pd.DataFrame,
 
     # ── 볼린저 밴드 ──────────────────────────────
     bb = bollinger_bands(result["close"])
-    result = pd.concat([result, bb], axis=1)
+    for col in bb.columns:
+        result[col] = bb[col]
 
     # ── MACD ─────────────────────────────────────
     mc = macd(result["close"])
-    result = pd.concat([result, mc], axis=1)
+    for col in mc.columns:
+        result[col] = mc[col]
 
     # ── 거래량 이동평균 ──────────────────────────
     result["vol_ma20"] = volume_ma(result["volume"], 20)
@@ -281,5 +285,11 @@ def compute_all(df: pd.DataFrame,
                                            pd.Series(0, index=result.index))
     result["macd_cross_down"] = crossunder(result["macd_hist"],
                                             pd.Series(0, index=result.index))
+
+    # ── 장세 분류 (ADX + EMA 배열) ──────────────
+    result["adx"] = compute_adx(result)
+    result["regime"] = "보합"
+    result.loc[result["ema_bullish"] & (result["adx"] >= 25), "regime"] = "상승"
+    result.loc[result["ema_bearish"] & (result["adx"] >= 25), "regime"] = "하락"
 
     return result

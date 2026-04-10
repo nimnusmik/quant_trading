@@ -207,9 +207,10 @@ def validate_data(df: pd.DataFrame, timeframe_key: str) -> bool:
 
     # 시간 간격 검사 (예상 간격의 3배 초과 갭 탐지)
     gap_map = {
-        "1h": pd.Timedelta(hours=1),
-        "5m": pd.Timedelta(minutes=5),
-        "1m": pd.Timedelta(minutes=1),
+        "1h":  pd.Timedelta(hours=1),
+        "30m": pd.Timedelta(minutes=30),
+        "5m":  pd.Timedelta(minutes=5),
+        "1m":  pd.Timedelta(minutes=1),
     }
     expected_gap = gap_map.get(timeframe_key, pd.Timedelta(minutes=5))
     time_diffs   = df["datetime"].diff().dropna()

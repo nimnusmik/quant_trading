@@ -14,8 +14,17 @@
 # Binance 공개 REST API (API 키 불필요)
 BINANCE_BASE_URL = "https://api.binance.com"
 
-# 백테스트 기간 (6개월)
-LOOKBACK_DAYS = 180
+# 백테스트 기간 (2년)
+LOOKBACK_DAYS = 730
+
+# Walk-Forward 검증 설정
+WF_TRAIN_DAYS = 180   # 각 폴드의 훈련 구간 (6개월)
+WF_TEST_DAYS  = 60    # 각 폴드의 검증 구간 (2개월)
+
+# 최종 홀드아웃 (과적합 검증용)
+# 데이터 끝에서 이 기간만큼을 WF 그리드서치에서 완전히 제외하고,
+# 최종 선택된 파라미터를 1회만 평가하는 데 사용
+HOLDOUT_DAYS = 60     # 2개월
 
 # 수집할 심볼 (Binance 페어 표기)
 SYMBOL = "XRPUSDT"
@@ -27,6 +36,16 @@ TIMEFRAMES = {
         "interval":        "1h",    # Binance kline interval
         "label":           "1시간봉",
         "candles_per_day": 24,      # 일별 캔들 수 (Sharpe 연환산에 사용)
+    },
+    "30m": {
+        "interval":        "30m",
+        "label":           "30분봉",
+        "candles_per_day": 48,      # 24 × 2 = 48
+    },
+    "15m": {
+        "interval":        "15m",
+        "label":           "15분봉",
+        "candles_per_day": 96,      # 24 × 4 = 96
     },
     "5m": {
         "interval":        "5m",
@@ -87,6 +106,7 @@ GRID = {
     # EMA 기간 조합 [빠른선, 느린선]
     "ema_pairs": [
         [5,  13],
+        [5,  20],
         [9,  21],
         [9,  50],
         [21, 55],
@@ -144,12 +164,20 @@ STRATEGY_GRIDS = {
 # 5. 결과 저장 경로
 # ─────────────────────────────────────────────
 
-OUTPUT_DIR       = "results"
-CHART_DIR        = "results/charts"
-CSV_DIR          = "results/csv"
+OUTPUT_DIR       = "results/1year"
+CHART_DIR        = "results/1year/charts"
+CSV_DIR          = "results/1year/csv"
 
 # ─────────────────────────────────────────────
-# 6. 차트 스타일 (다크 테마)
+# 6. Bootstrap CI 설정
+# ─────────────────────────────────────────────
+
+BOOTSTRAP_N    = 10_000    # 리샘플링 횟수
+BOOTSTRAP_CI   = 0.95      # 신뢰구간 수준 (95%)
+BOOTSTRAP_SEED = 42        # 재현성 보장용 시드
+
+# ─────────────────────────────────────────────
+# 7. 차트 스타일 (다크 테마)
 # ─────────────────────────────────────────────
 
 CHART_STYLE = {
