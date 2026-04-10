@@ -1,0 +1,24 @@
+# ─── 백테스트 코어 ───
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7
+tqdm>=4.65
+
+# ─── 데이터 수집 / HTTP ───
+requests>=2.31
+
+# ─── 거래소 / 트레이딩 ───
+ccxt>=4.0
+
+# ─── 모니터링 / 알림 ───
+python-telegram-bot>=20.0
+apscheduler>=3.10
+feedparser>=6.0
+yfinance>=0.2
+
+# ─── 환경 변수 / DB ───
+python-dotenv>=1.0
+psycopg2-binary>=2.9
+
+# ─── 테스트 ───
+pytest>=7.0

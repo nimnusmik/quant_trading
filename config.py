@@ -151,11 +151,23 @@ STRATEGY_GRIDS = {
 
 # ─────────────────────────────────────────────
 # 5. 결과 저장 경로
+#
+# 실행 시각 기준으로 results/YYYY-MM-DD_HHMMSS/ 폴더를 생성하고
+# 그 아래에 charts / stats / csv 세 폴더로 결과물을 분리합니다.
+# (config 모듈 로드 시점에 한 번만 계산되므로, 같은 프로세스 내에서는
+#  reporter.py / stat_validation.py 도 동일한 경로를 공유합니다.)
 # ─────────────────────────────────────────────
 
-OUTPUT_DIR       = "results/1year"
-CHART_DIR        = "results/1year/charts"
-CSV_DIR          = "results/1year/csv"
+import os as _os
+from datetime import datetime as _datetime
+
+RESULTS_ROOT = "results"
+RUN_LABEL    = _datetime.now().strftime("%Y-%m-%d_%H%M%S")
+
+OUTPUT_DIR = _os.path.join(RESULTS_ROOT, RUN_LABEL)
+CHART_DIR  = _os.path.join(OUTPUT_DIR, "charts")  # 대시보드, 히트맵, 매매 시점 차트
+STATS_DIR  = _os.path.join(OUTPUT_DIR, "stats")   # Bootstrap CI 히스토그램 (통계 검증)
+CSV_DIR    = _os.path.join(OUTPUT_DIR, "csv")     # 거래 내역, 최적 파라미터
 
 # ─────────────────────────────────────────────
 # 6. Bootstrap CI 설정

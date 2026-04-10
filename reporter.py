@@ -1,11 +1,13 @@
 # =============================================================================
 # reporter.py — 백테스트 결과 시각화 및 저장
 #
-# 생성 결과물:
-#   1) results/charts/dashboard_1h.png     — 전략 비교 대시보드
-#   2) results/charts/heatmap_1h.png       — 월별 수익률 히트맵
-#   3) results/csv/trades_S1_1h.csv        — 전략별 개별 거래 내역
-#   4) results/csv/best_params.csv         — 최적 파라미터 요약표
+# 결과는 results/<YYYY-MM-DD_HHMMSS>/ 폴더 아래에 카테고리별로 분리됩니다:
+#   charts/dashboard_<tf>.png       — 전략 비교 대시보드
+#   charts/heatmap_<tf>.png         — 월별 수익률 히트맵
+#   charts/trades_<S>_<tf>.png      — 전략별 매매 시점 차트
+#   stats/bootstrap_<S>_<tf>.png    — Bootstrap CI 히스토그램 (stat_validation)
+#   csv/trades_<S>_<tf>.csv         — 전략별 개별 거래 내역
+#   csv/best_params_<tf>.csv        — 최적 파라미터 요약표
 # =============================================================================
 
 import os

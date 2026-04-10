@@ -18,7 +18,7 @@ import os
 import time
 from datetime import datetime
 
-from config import TIMEFRAMES, OUTPUT_DIR, CHART_DIR, CSV_DIR
+from config import TIMEFRAMES, OUTPUT_DIR, CHART_DIR, STATS_DIR, CSV_DIR
 from data_loader import fetch_ohlcv, validate_data
 from indicators import compute_all
 from grid_search import run_all_grid_searches
@@ -143,17 +143,18 @@ def print_final_summary(results: dict):
             if bs:
                 print_bootstrap_summary(bs, sk, result["metrics"]["total_trades"])
 
-    print(f"\n결과 파일 위치:")
-    print(f"  차트: {CHART_DIR}/")
-    print(f"  CSV:  {CSV_DIR}/")
+    print(f"\n결과 파일 위치: {OUTPUT_DIR}/")
+    print(f"  ├── charts/  (대시보드, 히트맵, 매매시점)")
+    print(f"  ├── stats/   (Bootstrap CI)")
+    print(f"  └── csv/     (거래내역, 파라미터)")
     print()
 
 
 def main():
     args = parse_args()
 
-    # 결과 디렉토리 생성
-    for d in [OUTPUT_DIR, CHART_DIR, CSV_DIR]:
+    # 결과 디렉토리 생성 (실행 시각 기준 폴더 + 하위 3개 카테고리)
+    for d in [OUTPUT_DIR, CHART_DIR, STATS_DIR, CSV_DIR]:
         os.makedirs(d, exist_ok=True)
 
     # 실행할 타임프레임 결정

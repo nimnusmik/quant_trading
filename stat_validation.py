@@ -15,7 +15,7 @@ import matplotlib.ticker as mticker
 from matplotlib import font_manager as fm
 
 from config import (
-    INITIAL_CAPITAL, CHART_STYLE, CHART_DIR,
+    INITIAL_CAPITAL, CHART_STYLE, STATS_DIR,
     BOOTSTRAP_N, BOOTSTRAP_CI, BOOTSTRAP_SEED, KOREAN_FONTS,
 )
 
@@ -169,7 +169,7 @@ def bootstrap_ci(trades: list,
 def plot_bootstrap_histograms(bootstrap_results: dict,
                                strategy_key: str,
                                timeframe_key: str,
-                               save_dir: str = CHART_DIR) -> str:
+                               save_dir: str = STATS_DIR) -> str:
     """Bootstrap 결과를 히스토그램으로 시각화합니다."""
     if not bootstrap_results:
         return ""

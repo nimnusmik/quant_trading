@@ -36,6 +36,9 @@ results/
 *.png
 *.pyc
 
+# requirements.txt 는 *.txt 차단의 예외로 추적
+!requirements.txt
+
 # Environment variables
 .env
 .env.local
